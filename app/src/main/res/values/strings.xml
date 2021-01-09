@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Bixby as Power Button</string>
+    <string name="do_not_forget_pm_grant_dr_ramm_bixbyfix_android_permission_read_logs">adb shell pm grant dr.ramm.bixbyfix android.permission.READ_LOGS</string>
+    <string name="please_do_not_forget">Please, do not forget</string>
+</resources>
