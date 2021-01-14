@@ -18,9 +18,11 @@ class BixbyInterceptService : AccessibilityService() {
     private val DEBUG = false
     private val TAG: String = "BX_FIXUP"
     private val checkLogsPeriod : Long = 250
+    private val checkLogsPeriodAfterPess : Long = 1050
     private val freshPressTime : Double = 500.0
     private var isNewPress = false
-    private var previousPress : Double = 0.0
+    private var previousPress : Double = 1.0
+    private var lastPress : String = "1.0"
 
     private fun debug(TAG2 : String, text : String) {
         if (DEBUG)
@@ -28,20 +30,14 @@ class BixbyInterceptService : AccessibilityService() {
     }
 
     private fun getLastPress(): Double {
-        var lastPress : Double = 0.0
         try{
-            // Get all logs related to Bixby press in epoch
-            // I can't pass fckng quotes to exec, so
-            // "-t", "\'$previousPress\'",
-            val proc = Runtime.getRuntime().exec(
-                arrayOf(
-                    "logcat", "-s", "PhoneWindowManagerExt", "-e", "startBixbyService", "-d", "-v", "epoch"
-                )
-            )
+            // Get Bixby keypresses since last keypress.
+            val command = arrayOf("logcat", "-s", "PhoneWindowManagerExt", "-e", "startBixbyService", "-d", "-t", lastPress, "-t", "1")
+            val proc = Runtime.getRuntime().exec(command)
             val bufferedReader = BufferedReader(
                 InputStreamReader(proc.getInputStream())
             )
-
+            debug(TAG, command.joinToString(" " ))
             // Get last line
             var line: String? = ""
             var lastLine: String? = ""
@@ -55,9 +51,8 @@ class BixbyInterceptService : AccessibilityService() {
                     .find(input = lastLine)?.value
 
                 if (epochTime != null ) {
-                    lastPress = epochTime.toDouble()
-                    debug(TAG, "finalResult is $lastPress")
-                    return lastPress
+                    lastPress = epochTime
+                    return 1.0
                 }
             }
         }catch(e: IOException){
@@ -65,7 +60,7 @@ class BixbyInterceptService : AccessibilityService() {
         }catch(e: InterruptedException){
             throw Exception(e);
         }
-        return lastPress
+        return 0.0
     }
 
     private fun isDisplayEnabled(): Boolean {
@@ -76,20 +71,21 @@ class BixbyInterceptService : AccessibilityService() {
     private val checkEvent = Thread {
         while (true) {
             val lastPress = getLastPress()
-            val time = lastPress - previousPress
-            isNewPress =  time > freshPressTime / 1000
-            if (isNewPress) {
-                previousPress = lastPress
-                debug(TAG, "Wew, isNewPress is $isNewPress time is $time")
+            if (lastPress > 0.0) {
+                debug(TAG, "Wew, isNewPress is $isNewPress time is")
                 if (isDisplayEnabled()) {
                     performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
                 } else {
                     performGlobalAction(GLOBAL_ACTION_HOME)
                 }
-                // Behold! Dirty workaround!
+                // The Bixby keypress is sent twice when pressed (upon press and release).
+                // They logs look identical:
+                // 01-14 17:03:19.347   979  1175 D PhoneWindowManagerExt: startBixbyService keyPressType=-1 interactive=false isUnlockFP=false longPress=false doubleTap=false
+                // Sleep for a second and clear the log to prevent multiple detections.
+                Thread.sleep(checkLogsPeriodAfterPess)
+                // Clear logs.
                 Runtime.getRuntime().exec("logcat -c")
             }
-
             Thread.sleep(checkLogsPeriod)
         }
     }
