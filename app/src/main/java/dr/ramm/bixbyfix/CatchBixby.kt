@@ -17,7 +17,7 @@ import java.io.InputStreamReader
 
 class BixbyInterceptService : AccessibilityService() {
 
-    private val DEBUG = true
+    private val DEBUG = false
     private val TAG: String = "BX_FIXUP"
     private val checkLogsPeriod : Long = 250
     private var lastPress : String = "1.0"
@@ -30,20 +30,12 @@ class BixbyInterceptService : AccessibilityService() {
     private var press: Boolean = false
     private var longPress: Boolean = false
     private var longPressIgnore: Boolean = false
-    private var interactive: Boolean = false
+    //private var interactive: Boolean = false
+    private var bootupSequence: Boolean = true
 
     private fun debug(TAG2 : String, text : String) {
         if (DEBUG)
             Log.v(TAG2, text)
-    }
-
-    private fun getLog(): BufferedReader {
-        // Get Bixby keypresses since last keypress.
-        val command = arrayOf("logcat", "-s", "*:D",  "-e", "startBixbyService|AKEY_EVENT_FLAG_LONG_PRESS", "-d", "-t", lastPress)
-        val proc = Runtime.getRuntime().exec(command)
-        return BufferedReader(
-            InputStreamReader(proc.inputStream)
-        )
     }
 
     private fun handleBixbyPress() {
@@ -62,7 +54,7 @@ class BixbyInterceptService : AccessibilityService() {
     }
 
     private fun handleBixbyLongPress() {
-        debug(TAG, "handleBixbyLongPress interactive: $interactive")
+        debug(TAG, "handleBixbyLongPress")
         if (cameraId != null) {
             try {
                 cameraManager.setTorchMode(cameraId!!, !torchEnabled)
@@ -73,17 +65,25 @@ class BixbyInterceptService : AccessibilityService() {
     }
 
     private fun handleBixbyButton() {
-        val log = getLog()
+        // Get Bixby keypresses since last keypress.
+        val command = arrayOf("logcat", "-s", "*:D",  "-e", "startBixbyService|AKEY_EVENT_FLAG_LONG_PRESS", "-d", "-t", lastPress)
+        val proc = Runtime.getRuntime().exec(command)
+        val log = BufferedReader(InputStreamReader(proc.inputStream))
+
         var line: String? = ""
         var timestamp: String? = ""
+        var firstLine = true
         while (log.readLine().also { line = it } != null) {
-            timestamp = line?.let { Regex(pattern = """^.*\d*\.\d*""").find(input = it)?.value }
-            val isLongPressString: String? = line?.let { Regex(pattern = "AKEY_EVENT_FLAG_LONG_PRESS").find(input = it)?.value }
-            // First start ignore all to get last event.
-            if (lastPress == "1.0") {
-                //debug(TAG, "Bootup sequence")
+            // The first line in the log always has the previous entry, ignore it.
+            if (firstLine) {
+                firstLine = false
                 continue
             }
+            timestamp = line?.let { Regex(pattern = """^.*\d*\.\d*""").find(input = it)?.value }
+            // At boot we need to figure out what the last Bixby event was, so ignore all further parsing here.
+            if (bootupSequence) continue
+
+            val isLongPressString: String? = line?.let { Regex(pattern = "AKEY_EVENT_FLAG_LONG_PRESS").find(input = it)?.value }
 
             if (timestamp != null) {
                 //line?.let { debug(TAG, it) }
@@ -96,7 +96,7 @@ class BixbyInterceptService : AccessibilityService() {
                     longPressIgnore = true
                     handleBixbyLongPress()
                 } else {
-                    interactive = line?.contains("interactive=true") ?: false
+                    //interactive = line?.contains("interactive=true") ?: false
                     lastPress = timestamp;
                     if (longPressIgnore) {
                         // timestamp directly after longpress detect. ignore
@@ -116,15 +116,12 @@ class BixbyInterceptService : AccessibilityService() {
             }
 
         }
-        if (lastPress == "1.0") {
+        if (bootupSequence) {
+            bootupSequence = false
             if (timestamp != null) {
-                debug(TAG, "$timestamp: Bootup sequence complete!")
                 lastPress = timestamp
-            } else {
-                debug(TAG, "Bootup sequence complete (no entries)!")
-                lastPress = "2.0"
-
             }
+            debug(TAG, "$timestamp: Bootup sequence complete!")
         }
         //debug(TAG, "Press: $press LongPress: $longPress")
     }
