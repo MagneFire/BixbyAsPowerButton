@@ -39,11 +39,11 @@ class BixbyInterceptService : AccessibilityService() {
     }
 
     private fun handleBixbyPress() {
-        debug(TAG, "handleBixbyPress")
+        //debug(TAG, "handleBixbyPress")
     }
 
     private fun handleBixbyRelease() {
-        debug(TAG, "handleBixbyRelease wasLong: $longPress")
+        //debug(TAG, "handleBixbyRelease wasLong: $longPress")
         if (!longPress) {
             if (isDisplayEnabled()) {
                 performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
@@ -54,7 +54,7 @@ class BixbyInterceptService : AccessibilityService() {
     }
 
     private fun handleBixbyLongPress() {
-        debug(TAG, "handleBixbyLongPress")
+        //debug(TAG, "handleBixbyLongPress")
         if (cameraId != null) {
             try {
                 cameraManager.setTorchMode(cameraId!!, !torchEnabled)
@@ -64,9 +64,26 @@ class BixbyInterceptService : AccessibilityService() {
         }
     }
 
+    private fun setupBixbyButton() {
+        val command = arrayOf("logcat", "-t", "1")
+        val proc = Runtime.getRuntime().exec(command)
+        val log = BufferedReader(InputStreamReader(proc.inputStream))
+        var line: String? = ""
+        var timestamp: String? = ""
+        while (log.readLine().also { line = it } != null) {
+
+            // Find timestamp in format: dd-mm hh:mm:ss.sss
+            timestamp = line?.let { Regex(pattern = """^\d+-\d+\s\d+:\d+:\d+.\d+""").find(input = it)?.value }
+
+            if (timestamp != null) {
+                lastPress = timestamp
+            }
+        }
+    }
+
     private fun handleBixbyButton() {
         // Get Bixby keypresses since last keypress.
-        val command = arrayOf("logcat", "-s", "*:D",  "-e", "startBixbyService|AKEY_EVENT_FLAG_LONG_PRESS", "-d", "-t", lastPress)
+        val command = arrayOf("logcat", "-s", "*:D",  "-e", "getIntentBixbyService|AKEY_EVENT_FLAG_LONG_PRESS", "-d", "-t", lastPress)
         val proc = Runtime.getRuntime().exec(command)
         val log = BufferedReader(InputStreamReader(proc.inputStream))
 
@@ -80,9 +97,6 @@ class BixbyInterceptService : AccessibilityService() {
                 continue
             }
             timestamp = line?.let { Regex(pattern = """^.*\d*\.\d*""").find(input = it)?.value }
-            // At boot we need to figure out what the last Bixby event was, so ignore all further parsing here.
-            if (bootupSequence) continue
-
             val isLongPressString: String? = line?.let { Regex(pattern = "AKEY_EVENT_FLAG_LONG_PRESS").find(input = it)?.value }
 
             if (timestamp != null) {
@@ -116,13 +130,6 @@ class BixbyInterceptService : AccessibilityService() {
             }
 
         }
-        if (bootupSequence) {
-            bootupSequence = false
-            if (timestamp != null) {
-                lastPress = timestamp
-            }
-            debug(TAG, "$timestamp: Bootup sequence complete!")
-        }
         //debug(TAG, "Press: $press LongPress: $longPress")
     }
 
@@ -132,6 +139,7 @@ class BixbyInterceptService : AccessibilityService() {
     }
 
     private val checkEvent = Thread {
+        setupBixbyButton()
         while (true) {
             handleBixbyButton()
             Thread.sleep(checkLogsPeriod)
